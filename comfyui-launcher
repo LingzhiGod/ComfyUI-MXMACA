@@ -461,7 +461,7 @@ update_comfyui() {
     local python_prefix full_requirements_fingerprint direct_requirements_fingerprint
     local legacy_requirements_state direct_requirements_state requirements_state_tmp
     local index_requirements protected_constraints
-    local restart_failed=0 install_full_requirements=0
+    local restart_failed=0 install_full_requirements=0 install_index_requirements=0
     local -a pid_paths running_ports=()
     local -a protected_packages=(
         torch
@@ -551,6 +551,9 @@ if missing:
 PY
     then
         install_full_requirements=1
+    elif [[ ! -r "${legacy_requirements_state}" ]] ||
+            [[ "$(<"${legacy_requirements_state}")" != "${full_requirements_fingerprint}" ]]; then
+        install_index_requirements=1
     fi
 
     if (( install_full_requirements )); then
@@ -565,7 +568,10 @@ PY
         requirements_state_tmp="$(mktemp "${direct_requirements_state}.tmp.XXXXXX")"
         printf '%s\n' "${direct_requirements_fingerprint}" > "${requirements_state_tmp}"
         mv -f "${requirements_state_tmp}" "${direct_requirements_state}"
-    else
+        requirements_state_tmp="$(mktemp "${legacy_requirements_state}.tmp.XXXXXX")"
+        printf '%s\n' "${full_requirements_fingerprint}" > "${requirements_state_tmp}"
+        mv -f "${requirements_state_tmp}" "${legacy_requirements_state}"
+    elif (( install_index_requirements )); then
         printf 'Updating PyPI dependencies from %s\n' "${index_url}"
         env -u PIP_CONSTRAINT -u UV_CONSTRAINT "${COMFYUI_PYTHON}" -m pip install \
             --no-cache-dir \
@@ -575,6 +581,11 @@ PY
             --constraint "${protected_constraints}" \
             --requirement "${index_requirements}"
         "${COMFYUI_PYTHON}" -m pip check
+        requirements_state_tmp="$(mktemp "${legacy_requirements_state}.tmp.XXXXXX")"
+        printf '%s\n' "${full_requirements_fingerprint}" > "${requirements_state_tmp}"
+        mv -f "${requirements_state_tmp}" "${legacy_requirements_state}"
+    else
+        printf 'ComfyUI requirements are unchanged; skipping dependency installation\n'
     fi
     rm -f -- "${index_requirements}" "${protected_constraints}"
 
